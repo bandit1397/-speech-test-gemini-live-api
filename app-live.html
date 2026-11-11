@@ -1,0 +1,420 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>경찰 실시간 통역 Live</title>
+<link rel="preconnect" href="https://generativelanguage.googleapis.com" crossorigin>
+<link rel="preconnect" href="https://police-live-translate-default-rtdb.asia-southeast1.firebasedatabase.app" crossorigin>
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+<style>
+body{font-family:system-ui,-apple-system,"Noto Sans KR",sans-serif;background:#f4f5f7;margin:0;color:#111}
+main{max-width:720px;margin:auto;padding:14px 16px 40px}
+.card{background:#fff;border-radius:14px;padding:14px;margin:10px 0}
+details.card>summary{font-weight:800;cursor:pointer}
+input,select,button{width:100%;box-sizing:border-box;padding:14px;margin:5px 0;border-radius:10px;font-size:1rem}
+input,select{border:1px solid #ccc;background:#fff}
+button{border:0;font-weight:800;background:#e8e8ea;color:#111}
+.roles,.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.active{background:#111;color:#fff}
+.label{font-size:.82rem;color:#666;margin-top:6px}
+.status{font-weight:800}.ok{color:#087a2f}.bad{color:#b00020}
+#recv{font-size:1.75rem;line-height:1.4;font-weight:700;min-height:2.8em;overflow-wrap:anywhere}
+#recv.partial{opacity:.6}#recv.flash{animation:fl 1s}@keyframes fl{from{background:#fff3b0}to{background:#fff}}
+#talk{height:26vh;min-height:140px;font-size:1.5rem;background:#111;color:#fff;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+#talk.on{background:#c62828}#talk.busy{background:#666}
+#talk:disabled{background:#bbb}
+#recv,#mine,#mineTr,#hist div,#talk,#tstat{unicode-bidi:plaintext} /* 아랍어 등 RTL 문장은 오른쪽→왼쪽으로 표시 */
+#mine{font-size:1.05rem;color:#444;overflow-wrap:anywhere}#mineTr{font-size:.95rem;color:#777;overflow-wrap:anywhere}
+#tstat{font-weight:700;text-align:center;min-height:1.4em}
+.m{background:#f2f2f3;padding:9px;border-radius:9px;font-size:.8rem;color:#555}.m b{display:block;font-size:1.05rem;color:#111}
+#hist div{padding:7px 0;border-bottom:1px solid #eee;overflow-wrap:anywhere}#hist .me{color:#555}#hist .peer{font-weight:700}
+.log{white-space:pre-wrap;font-size:.82rem;color:#555;line-height:1.5}
+#langNow{font-size:1.25rem;font-weight:800;padding:4px 0}
+#langGrid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px}
+#langGrid button{margin:0;padding:12px 8px;font-size:1.05rem;text-align:left}
+.note{font-size:.85rem;background:#fff4d5;padding:10px;border-radius:10px;line-height:1.5}
+.badge{display:inline-block;background:#1a56db;color:#fff;border-radius:6px;padding:2px 7px;font-size:.75rem;font-weight:800;vertical-align:middle}
+</style></head><body><main>
+
+<details id="setup" class="card" open>
+ <summary>⚙️ 설정 (키 · 방 · 역할) <span class="badge">Live API 시험판</span></summary>
+ <div class="label">Gemini API Key (저장하지 않음)</div>
+ <input id="key" type="password" autocomplete="off" placeholder="API 키 입력">
+ <div class="label">Live 모델</div>
+ <select id="model">
+  <option value="gemini-3.5-live-translate-preview">gemini-3.5-live-translate-preview (통역 전용 · 말하는 동안 동시통역, 권장)</option>
+  <option value="gemini-3.8-live">gemini-3.8-live (일반 Live · 지시문 사용, 떼면 번역)</option>
+  <option value="gemini-3.1-flash-live-preview">gemini-3.1-flash-live-preview (일반 Live)</option>
+  <option value="gemini-2.5-flash-native-audio-preview-12-2025">gemini-2.5-flash-native-audio (일반 Live)</option>
+ </select>
+ <button id="test">Live 연결 테스트</button><b id="api">Live 미연결</b>
+ <div class="label">방 코드 (두 폰이 같아야 함)</div>
+ <input id="room" value="live-room" autocomplete="off">
+ <div class="label">이 휴대폰 역할</div>
+ <div class="roles"><button id="roleA">👮 경찰 A<br><small>한국어</small></button><button id="roleB">🌍 외국인 B<br><small>Foreigner</small></button></div>
+ <div class="label">Firebase 로그인 (두 폰 모두 같은 계정)</div>
+ <form id="loginForm"><input id="email" type="email" autocomplete="username" placeholder="이메일">
+ <input id="pw" type="password" autocomplete="current-password" placeholder="비밀번호">
+ <button id="login" type="submit">로그인</button><div id="loginMsg" class="status bad"></div></form>
+ <div id="authBox" hidden><span id="who" class="status ok"></span><button id="logout">로그아웃</button></div>
+ <div class="label">Firebase</div><div id="conn" class="status">연결 준비 중…</div>
+ <p class="note">Gemini Live API 시험판입니다. 기존 버전(app.html)과 속도를 비교하는 용도입니다. 무료 등급 연습용이므로 실제 이름·주소·사건 정보는 입력하지 마세요.</p>
+</details>
+
+<!-- 외국인(B) 휴대폰 화면에 바로 보이는 언어 선택 — 외국인이 직접 고름 -->
+<details id="langBox" class="card" hidden>
+ <summary id="langNow">🌐 Language</summary>
+ <div class="label">🌐 Choose your language · 选择语言 · 言語を選択 · اختر لغتك</div>
+ <div id="langGrid"></div>
+</details>
+
+<div class="card">
+ <div class="label" id="partnerLabel">상대방 (번역됨)</div>
+ <div id="recv">…</div>
+</div>
+
+<button id="talk" disabled>역할을 먼저 선택하세요</button>
+<div id="tstat"></div>
+
+<div class="card">
+ <div class="label" id="mineLabel">내가 한 말</div>
+ <div id="mine">…</div><div id="mineTr"></div>
+</div>
+
+<div class="card grid">
+ <div class="m">번역 첫 조각 (누른 후)<b id="mFirst">-</b></div>
+ <div class="m">번역 완료 (뗀 후)<b id="mDone">-</b></div>
+ <div class="m">Live 연결 준비<b id="mWs">-</b></div>
+ <div class="m">전송 지연 (네트워크)<b id="mRx">-</b></div>
+ <div class="m">수신: 첫 표시 (말 끝→)<b id="mE2E">-</b></div>
+ <div class="m">수신: 완료 (말 끝→)<b id="mE2Ed">-</b></div>
+</div>
+
+<details class="card"><summary id="histLabel">대화 기록</summary><div id="hist"></div></details>
+<details class="card"><summary>기술 로그</summary><div id="log" class="log">페이지 시작</div></details>
+
+<script type="module">
+import{initializeApp}from"https://www.gstatic.com/firebasejs/12.4.0/firebase-app.js";
+import{getDatabase,ref,set,onValue}from"https://www.gstatic.com/firebasejs/12.4.0/firebase-database.js";
+import{getAuth,onAuthStateChanged,signInWithEmailAndPassword,signOut}from"https://www.gstatic.com/firebasejs/12.4.0/firebase-auth.js";
+
+// 기존 speech-test(app.html)와 같은 Firebase 프로젝트·DB 규칙을 그대로 사용 (방 코드만 다르게)
+const config={apiKey:"AIzaSyCOZdr6afg-XFdAy1aNxtp5WTFOqwjv4v0",authDomain:"police-live-translate.firebaseapp.com",databaseURL:"https://police-live-translate-default-rtdb.asia-southeast1.firebasedatabase.app/",projectId:"police-live-translate",storageBucket:"police-live-translate.firebasestorage.app",messagingSenderId:"713741196450",appId:"1:713741196450:web:4e93fadf6ff85a3020cbfb"};
+
+// live = 통역 전용 모델의 목표 언어 코드(BCP-47)
+const LANGS={
+ ko:{en:"Korean",live:"ko"},
+ en:{en:"English",live:"en"},
+ zh:{en:"Simplified Chinese",live:"zh-Hans"},
+ ja:{en:"Japanese",live:"ja"},
+ vi:{en:"Vietnamese",live:"vi"},
+ es:{en:"Spanish",live:"es"},
+ th:{en:"Thai",live:"th"},
+ id:{en:"Indonesian",live:"id"},
+ ms:{en:"Malay",live:"ms"},
+ fil:{en:"Filipino (Tagalog)",live:"fil"},
+ mn:{en:"Mongolian (Cyrillic script)",live:"mn"},
+ uz:{en:"Uzbek (Latin script)",live:"uz"},
+ ne:{en:"Nepali",live:"ne"},
+ km:{en:"Khmer",live:"km"},
+ my:{en:"Burmese",live:"my"},
+ hi:{en:"Hindi",live:"hi"},
+ ru:{en:"Russian",live:"ru"},
+ ar:{en:"Arabic (Modern Standard)",live:"ar"},
+ fr:{en:"French",live:"fr"},
+ de:{en:"German",live:"de"},
+ pt:{en:"Portuguese",live:"pt-BR"}};
+const UI={
+ ko:{talk:"🎤 누르고 말하기",listening:"🔴 듣는 중… (떼면 전송)",tapStop:"🔴 듣는 중… (다시 누르면 전송)",translating:"번역 중…",sent:"✅ 전송됨",partner:"외국인 (번역됨)",mine:"내가 한 말",noSpeech:"음성이 인식되지 않았습니다",err:"오류",quota:"요청 한도 초과 — 잠시 후 다시",history:"대화 기록"},
+ en:{talk:"🎤 Hold to speak",listening:"🔴 Listening… (release to send)",tapStop:"🔴 Listening… (tap again to send)",translating:"Translating…",sent:"✅ Sent",partner:"Police officer (translated)",mine:"What you said",noSpeech:"No speech detected",err:"Error",quota:"Too many requests — try again shortly",history:"Conversation"},
+ zh:{talk:"🎤 按住说话",listening:"🔴 正在听…（松开发送）",tapStop:"🔴 正在听…（再按一次发送）",translating:"翻译中…",sent:"✅ 已发送",partner:"警察（已翻译）",mine:"您说的话",noSpeech:"未识别到语音",err:"错误",quota:"请求过多，请稍后再试",history:"对话记录"},
+ ja:{talk:"🎤 押しながら話す",listening:"🔴 聞いています…（離すと送信）",tapStop:"🔴 聞いています…（もう一度押すと送信）",translating:"翻訳中…",sent:"✅ 送信しました",partner:"警察官（翻訳）",mine:"あなたの発言",noSpeech:"音声が認識されませんでした",err:"エラー",quota:"リクエストが多すぎます。少し待ってください",history:"会話履歴"},
+ vi:{talk:"🎤 Nhấn giữ để nói",listening:"🔴 Đang nghe… (thả ra để gửi)",tapStop:"🔴 Đang nghe… (nhấn lần nữa để gửi)",translating:"Đang dịch…",sent:"✅ Đã gửi",partner:"Cảnh sát (đã dịch)",mine:"Bạn đã nói",noSpeech:"Không nhận diện được giọng nói",err:"Lỗi",quota:"Quá nhiều yêu cầu — vui lòng thử lại sau",history:"Lịch sử hội thoại"},
+ es:{talk:"🎤 Mantén pulsado para hablar",listening:"🔴 Escuchando… (suelta para enviar)",tapStop:"🔴 Escuchando… (pulsa otra vez para enviar)",translating:"Traduciendo…",sent:"✅ Enviado",partner:"Policía (traducido)",mine:"Lo que dijiste",noSpeech:"No se detectó voz",err:"Error",quota:"Demasiadas solicitudes — inténtalo en un momento",history:"Conversación"},
+ th:{talk:"🎤 กดค้างไว้เพื่อพูด",listening:"🔴 กำลังฟัง… (ปล่อยเพื่อส่ง)",tapStop:"🔴 กำลังฟัง… (แตะอีกครั้งเพื่อส่ง)",translating:"กำลังแปล…",sent:"✅ ส่งแล้ว",partner:"ตำรวจ (แปลแล้ว)",mine:"สิ่งที่คุณพูด",noSpeech:"ไม่พบเสียงพูด",err:"ข้อผิดพลาด",quota:"มีคำขอมากเกินไป — โปรดลองอีกครั้งในอีกสักครู่",history:"ประวัติการสนทนา"},
+ id:{talk:"🎤 Tekan dan tahan untuk bicara",listening:"🔴 Mendengarkan… (lepas untuk mengirim)",tapStop:"🔴 Mendengarkan… (ketuk lagi untuk mengirim)",translating:"Menerjemahkan…",sent:"✅ Terkirim",partner:"Polisi (diterjemahkan)",mine:"Yang Anda katakan",noSpeech:"Suara tidak terdeteksi",err:"Kesalahan",quota:"Terlalu banyak permintaan — coba lagi sebentar",history:"Riwayat percakapan"},
+ ms:{talk:"🎤 Tekan dan tahan untuk bercakap",listening:"🔴 Mendengar… (lepaskan untuk hantar)",tapStop:"🔴 Mendengar… (tekan sekali lagi untuk hantar)",translating:"Menterjemah…",sent:"✅ Dihantar",partner:"Polis (diterjemah)",mine:"Apa yang anda katakan",noSpeech:"Tiada suara dikesan",err:"Ralat",quota:"Terlalu banyak permintaan — cuba lagi sebentar",history:"Perbualan"},
+ fil:{talk:"🎤 Pindutin nang matagal para magsalita",listening:"🔴 Nakikinig… (bitawan para ipadala)",tapStop:"🔴 Nakikinig… (pindutin ulit para ipadala)",translating:"Isinasalin…",sent:"✅ Naipadala",partner:"Pulis (isinalin)",mine:"Ang sinabi mo",noSpeech:"Walang narinig na boses",err:"Error",quota:"Masyadong maraming request — subukan ulit mamaya",history:"Usapan"},
+ mn:{talk:"🎤 Дараад ярина уу",listening:"🔴 Сонсож байна… (суллавал илгээнэ)",tapStop:"🔴 Сонсож байна… (дахин дарвал илгээнэ)",translating:"Орчуулж байна…",sent:"✅ Илгээгдлээ",partner:"Цагдаа (орчуулсан)",mine:"Таны хэлсэн үг",noSpeech:"Яриа танигдсангүй",err:"Алдаа",quota:"Хүсэлт хэт олон байна — түр хүлээгээд дахин оролдоно уу",history:"Ярианы түүх"},
+ uz:{talk:"🎤 Gapirish uchun bosib turing",listening:"🔴 Tinglanmoqda… (yuborish uchun qoʻyib yuboring)",tapStop:"🔴 Tinglanmoqda… (yuborish uchun yana bosing)",translating:"Tarjima qilinmoqda…",sent:"✅ Yuborildi",partner:"Politsiya xodimi (tarjima)",mine:"Siz aytgan gap",noSpeech:"Ovoz aniqlanmadi",err:"Xato",quota:"Soʻrovlar juda koʻp — birozdan soʻng qayta urinib koʻring",history:"Suhbat tarixi"},
+ ne:{talk:"🎤 बोल्न थिचिराख्नुहोस्",listening:"🔴 सुन्दैछ… (पठाउन छोड्नुहोस्)",tapStop:"🔴 सुन्दैछ… (पठाउन फेरि थिच्नुहोस्)",translating:"अनुवाद हुँदैछ…",sent:"✅ पठाइयो",partner:"प्रहरी (अनुवादित)",mine:"तपाईंले भनेको कुरा",noSpeech:"कुनै आवाज पहिचान भएन",err:"त्रुटि",quota:"धेरै अनुरोधहरू — केही बेरपछि फेरि प्रयास गर्नुहोस्",history:"कुराकानी"},
+ km:{talk:"🎤 ចុចឱ្យជាប់ដើម្បីនិយាយ",listening:"🔴 កំពុងស្តាប់… (លែងដើម្បីផ្ញើ)",tapStop:"🔴 កំពុងស្តាប់… (ចុចម្តងទៀតដើម្បីផ្ញើ)",translating:"កំពុងបកប្រែ…",sent:"✅ បានផ្ញើ",partner:"ប៉ូលីស (បានបកប្រែ)",mine:"អ្វីដែលអ្នកបាននិយាយ",noSpeech:"រកមិនឃើញសំឡេងនិយាយ",err:"កំហុស",quota:"សំណើច្រើនពេក — សូមព្យាយាមម្តងទៀតបន្តិចក្រោយ",history:"ប្រវត្តិសន្ទនា"},
+ my:{talk:"🎤 စကားပြောရန် ဖိထားပါ",listening:"🔴 နားထောင်နေသည်… (ပို့ရန် လွှတ်ပါ)",tapStop:"🔴 နားထောင်နေသည်… (ပို့ရန် ထပ်နှိပ်ပါ)",translating:"ဘာသာပြန်နေသည်…",sent:"✅ ပို့ပြီးပါပြီ",partner:"ရဲ (ဘာသာပြန်ထားသည်)",mine:"သင်ပြောခဲ့သည့်စကား",noSpeech:"စကားသံ မတွေ့ပါ",err:"အမှား",quota:"တောင်းဆိုမှု များလွန်းသည် — ခဏနေမှ ထပ်ကြိုးစားပါ",history:"စကားပြောမှတ်တမ်း"},
+ hi:{talk:"🎤 बोलने के लिए दबाकर रखें",listening:"🔴 सुन रहे हैं… (भेजने के लिए छोड़ें)",tapStop:"🔴 सुन रहे हैं… (भेजने के लिए फिर से दबाएँ)",translating:"अनुवाद हो रहा है…",sent:"✅ भेज दिया गया",partner:"पुलिस अधिकारी (अनुवादित)",mine:"आपने जो कहा",noSpeech:"कोई आवाज़ नहीं पहचानी गई",err:"त्रुटि",quota:"बहुत अधिक अनुरोध — थोड़ी देर बाद फिर कोशिश करें",history:"बातचीत"},
+ ru:{talk:"🎤 Удерживайте, чтобы говорить",listening:"🔴 Слушаю… (отпустите, чтобы отправить)",tapStop:"🔴 Слушаю… (нажмите ещё раз, чтобы отправить)",translating:"Перевод…",sent:"✅ Отправлено",partner:"Полицейский (перевод)",mine:"Что вы сказали",noSpeech:"Речь не распознана",err:"Ошибка",quota:"Слишком много запросов — попробуйте чуть позже",history:"История разговора"},
+ ar:{talk:"🎤 اضغط مع الاستمرار للتحدث",listening:"🔴 جارٍ الاستماع… (اترك الزر للإرسال)",tapStop:"🔴 جارٍ الاستماع… (اضغط مرة أخرى للإرسال)",translating:"جارٍ الترجمة…",sent:"✅ تم الإرسال",partner:"الشرطي (مترجم)",mine:"ما قلته",noSpeech:"لم يتم التعرف على أي كلام",err:"خطأ",quota:"طلبات كثيرة جدًا — حاول مرة أخرى بعد قليل",history:"سجل المحادثة"},
+ fr:{talk:"🎤 Maintenez pour parler",listening:"🔴 Écoute… (relâchez pour envoyer)",tapStop:"🔴 Écoute… (appuyez à nouveau pour envoyer)",translating:"Traduction…",sent:"✅ Envoyé",partner:"Policier (traduit)",mine:"Ce que vous avez dit",noSpeech:"Aucune parole détectée",err:"Erreur",quota:"Trop de requêtes — réessayez dans un instant",history:"Conversation"},
+ de:{talk:"🎤 Zum Sprechen gedrückt halten",listening:"🔴 Höre zu… (loslassen zum Senden)",tapStop:"🔴 Höre zu… (erneut tippen zum Senden)",translating:"Übersetze…",sent:"✅ Gesendet",partner:"Polizist (übersetzt)",mine:"Was Sie gesagt haben",noSpeech:"Keine Sprache erkannt",err:"Fehler",quota:"Zu viele Anfragen — bitte gleich noch einmal versuchen",history:"Gesprächsverlauf"},
+ pt:{talk:"🎤 Segure para falar",listening:"🔴 Ouvindo… (solte para enviar)",tapStop:"🔴 Ouvindo… (toque de novo para enviar)",translating:"Traduzindo…",sent:"✅ Enviado",partner:"Policial (traduzido)",mine:"O que você disse",noSpeech:"Nenhuma fala detectada",err:"Erro",quota:"Muitas solicitações — tente novamente em instantes",history:"Conversa"}};
+const $=x=>document.getElementById(x);
+const tm=()=>new Date().toLocaleTimeString("ko-KR",{hour12:false});
+const lg=s=>{$("log").textContent+="\n"+tm()+" : "+s};
+const sec=ms=>(ms/1000).toFixed(2)+"초";
+
+let db=null,auth=null,role="",bLang="en",room="",offset=0,unsubs=[],lastId=null,peerHist=null;
+const myLang=()=>role==="A"?"ko":bLang, peerLang=()=>role==="A"?bLang:"ko";
+const ui=()=>UI[role==="B"?bLang:"ko"];
+
+// ---------- Firebase ----------
+try{
+ const app=initializeApp(config);db=getDatabase(app);auth=getAuth(app);
+ onValue(ref(db,".info/connected"),s=>{const c=!!s.val();$("conn").textContent=c?"✅ Firebase 연결됨":"⏳ 연결 대기";$("conn").className="status "+(c?"ok":"")});
+ onValue(ref(db,".info/serverTimeOffset"),s=>{offset=s.val()||0});
+}catch(e){$("conn").textContent="❌ 초기화 실패";$("conn").className="status bad";lg("Firebase 초기화 오류 → "+e.message)}
+
+if(auth){
+ onAuthStateChanged(auth,u=>{
+  $("loginForm").hidden=!!u;$("authBox").hidden=!u;$("who").textContent=u?"✅ "+u.email:"";
+  lg(u?"로그인됨 → "+u.email:"로그인 필요");
+  if(role){listen();publishLang()}
+ });
+ $("loginForm").onsubmit=async e=>{
+  e.preventDefault();$("login").disabled=true;
+  $("loginMsg").textContent="";try{await signInWithEmailAndPassword(auth,$("email").value.trim(),$("pw").value);$("pw").value=""}
+  catch(err){$("loginMsg").textContent="❌ 로그인 실패 ("+err.code+")";lg("로그인 오류 → "+err.code)}
+  $("login").disabled=false;
+ };
+ $("logout").onclick=()=>signOut(auth);
+}
+const authed=()=>!!auth?.currentUser;
+
+function listen(){
+ unsubs.forEach(u=>u());unsubs=[];lastId=null;
+ if(!db||!role)return;
+ if(!authed()){$("conn").textContent="🔒 로그인하세요";$("conn").className="status bad";$("setup").open=true;return}
+ room=($("room").value.trim().replace(/[^A-Za-z0-9_-]/g,"")||"live-room");$("room").value=room;
+ const base="rooms/"+room+"/";
+ let first=true;
+ unsubs.push(onValue(ref(db,base+(role==="A"?"BtoA":"AtoB")),s=>{
+  const v=s.val();
+  if(first){first=false;lastId=v?.id??null;return} // 이전에 남아 있던 메시지는 표시하지 않음
+  if(!v||!v.text)return;
+  const now=Date.now()+offset,ok=d=>d>=0&&d<60000,isNew=v.id!==lastId;
+  $("recv").textContent=v.text;$("recv").classList.toggle("partial",!v.done);
+  const d=now-v.sentMs;$("mRx").textContent=ok(d)?d+" ms":"-";
+  if(isNew){
+   lastId=v.id;peerHist=null;$("recv").classList.remove("flash");void $("recv").offsetWidth;$("recv").classList.add("flash");navigator.vibrate?.(60);
+   // relMs=0 → 상대가 아직 말하는 중에 번역이 먼저 도착 (동시통역)
+   $("mE2E").textContent=v.relMs?(ok(now-v.relMs)?(now-v.relMs)+" ms":"-"):"말하는 중 도착";$("mE2Ed").textContent="…";
+  }
+  if(v.done){
+   if(peerHist)peerHist.textContent="💬 "+v.text;else peerHist=addHist("peer",v.text);
+   const e=now-v.relMs;$("mE2Ed").textContent=v.relMs&&ok(e)?e+" ms":"-";lg("수신 ← "+v.text+(v.relMs?" (말 끝→완료 "+e+" ms)":""));
+  }
+ },e=>lg("수신 오류 → "+e.message)));
+ unsubs.push(onValue(ref(db,base+"meta"),s=>{
+  const l=s.val()?.bLang;
+  if(role==="A"&&l&&LANGS[l]&&l!==bLang){bLang=l;lg("외국인 언어 → "+LANGS[l].en);liveReconnectSoon()}
+  if(role==="A")$("partnerLabel").textContent=UI.ko.partner+" · "+LANGS[bLang].en+" ⇄ Korean";
+ }));
+ lg("방 "+room+" 역할 "+role+" 수신 시작");
+}
+function publishLang(){if(db&&role==="B"&&authed())set(ref(db,"rooms/"+room+"/meta"),{bLang}).catch(e=>lg("언어 저장 오류 → "+e.message))}
+
+// ---------- 역할 / 화면 언어 ----------
+function applyUI(){
+ const u=ui();document.documentElement.lang=myLang();
+ $("partnerLabel").textContent=u.partner+(role==="A"?" · "+LANGS[bLang].en+" ⇄ Korean":"");
+ $("mineLabel").textContent=u.mine;$("histLabel").textContent=u.history;
+ if(!talking){$("talk").textContent=u.talk;$("talk").disabled=!navigator.mediaDevices}
+}
+function choose(r){
+ role=r;$("roleA").classList.toggle("active",r==="A");$("roleB").classList.toggle("active",r==="B");
+ $("langBox").hidden=r!=="B";$("langBox").open=r==="B";
+ listen();publishLang();applyUI();keepAwake();
+ micInit().catch(e=>lg("마이크 오류 → "+e.message)); // 역할 선택(사용자 터치) 때 마이크를 미리 열어 둠
+ liveConnect().catch(()=>{}); // Live 세션도 미리 연결
+ if($("key").value.trim())$("setup").open=false;
+}
+$("roleA").onclick=()=>choose("A");$("roleB").onclick=()=>choose("B");
+// 언어 버튼: 국기 + 그 나라 말로 된 이름
+const LANG_BTN={en:"🇺🇸 English",zh:"🇨🇳 中文",ja:"🇯🇵 日本語",vi:"🇻🇳 Tiếng Việt",th:"🇹🇭 ภาษาไทย",id:"🇮🇩 Bahasa Indonesia",
+ ms:"🇲🇾 Bahasa Melayu",fil:"🇵🇭 Filipino",mn:"🇲🇳 Монгол",uz:"🇺🇿 Oʻzbek",ne:"🇳🇵 नेपाली",km:"🇰🇭 ខ្មែរ",
+ my:"🇲🇲 မြန်မာ",hi:"🇮🇳 हिन्दी",ru:"🇷🇺 Русский",ar:"🇸🇦 العربية",es:"🇪🇸 Español",fr:"🇫🇷 Français",de:"🇩🇪 Deutsch",pt:"🇧🇷 Português"};
+function showLang(){
+ $("langNow").textContent="🌐 "+LANG_BTN[bLang]+"  ▾";
+ for(const b of $("langGrid").children)b.classList.toggle("active",b.dataset.l===bLang);
+}
+for(const[l,name]of Object.entries(LANG_BTN)){
+ const b=document.createElement("button");b.dataset.l=l;b.textContent=name;
+ b.onclick=()=>{bLang=l;showLang();$("langBox").open=false;publishLang();applyUI();liveReconnectSoon()};
+ $("langGrid").append(b);
+}
+showLang();
+$("room").onchange=()=>{if(role){listen();publishLang()}};
+
+async function keepAwake(){try{if("wakeLock"in navigator&&document.visibilityState==="visible")await navigator.wakeLock.request("screen")}catch(e){}}
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"&&role){keepAwake();liveConnect().catch(()=>{})}});
+
+// ---------- Gemini Live API (WebSocket) ----------
+// 통역 전용 모델: 말하는 동안 오디오를 0.1초씩 계속 보내고, 번역문(outputTranscription)이 말하는 도중에도 흘러나옴
+// 일반 Live 모델: 누르면 activityStart, 떼면 activityEnd → 지시문대로 번역해서 답함 (음성 답변의 자막을 사용)
+// 어느 쪽이든 음성 답변(오디오)은 쓰지 않고 자막(텍스트)만 Firebase로 상대 폰에 보냄
+const WS_URL="wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent";
+const isTranslate=()=>$("model").value.includes("translate");
+let ws=null,wsSig="",wsReady=null,wsOk=false,wsFails=0,wsQueue=[];
+// 자막 설정 위치가 문서마다 달라서(generationConfig 안 / setup 바로 아래) 거부되면 다른 위치로 다시 시도
+let trPlace="gen";
+const sysPrompt=()=>`You are a live interpreter between a Korean police officer and a foreign national. Every time the user speaks (in ${LANGS[myLang()].en}), say only its complete ${LANGS[peerLang()].en} translation. Translate every sentence; do not omit, summarize, answer, or add anything. Never reply as yourself.`;
+function setupMsg(){
+ const m=$("model").value,gc={responseModalities:["AUDIO"]},s={model:"models/"+m,generationConfig:gc};
+ const tr=trPlace==="gen"?gc:s;tr.inputAudioTranscription={};tr.outputAudioTranscription={};
+ if(isTranslate())gc.translationConfig={targetLanguageCode:LANGS[peerLang()].live,echoTargetLanguage:false};
+ else{s.systemInstruction={parts:[{text:sysPrompt()}]};s.realtimeInputConfig={automaticActivityDetection:{disabled:true}}}
+ return{setup:s};
+}
+const sig=()=>$("model").value+"|"+$("key").value.trim()+"|"+myLang()+"|"+peerLang();
+function liveClose(){if(ws){const w=ws;ws=null;wsOk=false;wsSig="";try{w.close()}catch(e){}}}
+function liveConnect(){
+ const key=$("key").value.trim();
+ if(!key||!role)return Promise.reject(new Error("키 또는 역할 없음"));
+ if(ws&&wsSig===sig())return wsReady;
+ liveClose();
+ const sock=ws=new WebSocket(WS_URL+"?key="+encodeURIComponent(key));sock.binaryType="arraybuffer";
+ wsSig=sig();wsOk=false;const st=performance.now(),dec=new TextDecoder();
+ $("api").className="";$("api").textContent="Live 연결 중…";
+ wsReady=new Promise((res,rej)=>{
+  sock.onopen=()=>sock.send(JSON.stringify(setupMsg()));
+  sock.onmessage=e=>{
+   let m;try{m=JSON.parse(typeof e.data==="string"?e.data:dec.decode(e.data))}catch(x){return}
+   if(m.setupComplete){
+    if(ws!==sock)return;wsOk=true;wsFails=0;const ms=performance.now()-st;$("mWs").textContent=sec(ms);
+    $("api").className="ok";$("api").textContent="✅ Live 연결됨 ("+$("model").value+", "+sec(ms)+")";
+    lg("Live 세션 준비 ("+sec(ms)+") · "+LANGS[myLang()].en+" → "+LANGS[peerLang()].en);
+    for(const q of wsQueue)sock.send(q);wsQueue=[];res();return;
+   }
+   if(ws===sock)onServer(m);
+  };
+  sock.onclose=e=>{
+   lg("Live 연결 종료 (코드 "+e.code+(e.reason?" · "+e.reason.slice(0,200):"")+")");
+   const mine=ws===sock;if(mine){ws=null;wsOk=false;wsSig=""}
+   rej(new Error(e.code+" "+e.reason));
+   if(!mine)return;
+   if(cur&&!cur.done&&!talking)finish(cur);
+   // 자막 설정 위치가 거부된 경우 → 다른 위치로 한 번 더
+   if(e.code===1007&&/transcription/i.test(e.reason)&&trPlace==="gen"){trPlace="top";lg("자막 설정 위치 변경 후 재연결");liveConnect().catch(()=>{});return}
+   if(e.code===1008||e.code===1007||/quota|exceeded|API key/i.test(e.reason)){
+    $("api").className="bad";$("api").textContent="❌ Live 연결 실패: "+(e.reason||e.code).slice(0,120);wsQueue=[];return;
+   }
+   $("api").className="";$("api").textContent="Live 연결 끊김 → 재연결";
+   // 세션 시간 제한·네트워크 끊김 → 잠시 후 자동 재연결 (연속 실패 5회까지)
+   if(++wsFails<=5&&document.visibilityState==="visible")setTimeout(()=>{if(!ws&&role)liveConnect().catch(()=>{})},1000*wsFails);
+  };
+  sock.onerror=()=>{};
+ });
+ wsReady.catch(()=>{});
+ return wsReady;
+}
+// 외국인 언어가 바뀌면 세션을 새 언어로 다시 연결 (말하는 중이면 끝난 뒤)
+let reconnT=0;
+function liveReconnectSoon(){clearTimeout(reconnT);reconnT=setTimeout(()=>{if(talking)return liveReconnectSoon();if(role&&wsSig!==sig())liveConnect().catch(()=>{})},300)}
+$("model").onchange=$("key").onchange=()=>{if(role)liveConnect().catch(()=>{})};
+function wsSend(obj){
+ const s=JSON.stringify(obj);
+ if(ws&&wsOk&&ws.readyState===1)ws.send(s);
+ else{wsQueue.push(s);if(wsQueue.length>600)wsQueue.shift()} // 연결 준비 전 소리는 모아 두었다가 연결되면 한꺼번에 보냄 (최대 약 60초)
+}
+$("test").onclick=()=>{
+ if(!$("key").value.trim()){$("api").className="bad";$("api").textContent="키를 입력하세요";return}
+ if(!role){$("api").className="bad";$("api").textContent="역할을 먼저 선택하세요";return}
+ liveClose();liveConnect().catch(e=>lg("Live 연결 테스트 실패 → "+e.message));
+};
+
+// ---------- 서버 메시지 처리 ----------
+// utt = 한 번의 발화. 번역 자막이 올 때마다 Firebase에 같은 id로 덮어씀
+function onServer(m){
+ if(m.goAway){lg("서버가 곧 연결을 끊음 (남은 시간 "+(m.goAway.timeLeft||"?")+") → 발화 후 재연결");wsSig="__stale";if(!talking&&(!cur||cur.done)){liveClose();liveConnect().catch(()=>{})}}
+ const sc=m.serverContent;if(!sc)return;
+ const u=cur;if(!u)return;
+ if(sc.inputTranscription?.text){u.inTr+=sc.inputTranscription.text;$("mine").textContent=u.inTr.trim()||"…"}
+ if(sc.outputTranscription?.text){
+  u.out+=sc.outputTranscription.text;const t=u.out.trim();if(!t)return;
+  if(!u.tFirst){u.tFirst=performance.now();$("mFirst").textContent=sec(u.tFirst-u.t0)+(u.tRel?"":" (말하는 중)")}
+  $("mineTr").textContent="→ "+t;
+  push(u,t,u.done).catch(e=>lg("송신 오류 → "+e.message));
+  if(u.done&&u.hist)u.hist.textContent="🗣 "+(u.inTr.trim()||"…")+"  →  "+t; // 완료 뒤 늦게 온 꼬리 자막도 반영
+  if(u.tRel)armIdle(u);
+ }
+ if((sc.turnComplete||sc.generationComplete)&&u.tRel&&!isTranslate())finish(u);
+}
+const pushPath=()=>ref(db,"rooms/"+room+"/"+(role==="A"?"AtoB":"BtoA"));
+const push=(u,t,done)=>set(pushPath(),{id:u.id,text:t.slice(0,1990),done,src:myLang(),tgt:peerLang(),relMs:u.rel||0,sentMs:Date.now()+offset});
+// 뗀 뒤: 통역 전용은 자막이 0.9초 동안 더 안 오면 완료, 일반 Live는 turnComplete가 오면 완료 (최대 8초 대기)
+function armIdle(u){clearTimeout(u.idleT);u.idleT=setTimeout(()=>finish(u),u.out.trim()?(isTranslate()?900:2500):8000)}
+function finish(u){
+ if(u.done)return;u.done=true;clearTimeout(u.idleT);
+ const t=u.out.trim(),x=ui();$("talk").classList.remove("busy");
+ if(!t){if(cur===u)$("tstat").textContent=x.noSpeech;lg("번역 결과 없음");return}
+ const doneMs=u.tRel?performance.now()-u.tRel:0;if(cur===u)$("mDone").textContent=sec(doneMs);
+ push(u,t,true).then(()=>{if(cur===u)$("tstat").textContent=x.sent},e=>{$("tstat").textContent="❌ "+x.err;lg("송신 오류 → "+e.message)});
+ u.hist=addHist("me",(u.inTr.trim()||"…")+"  →  "+t);
+ lg("송신 → "+t+" (첫 조각: 누른 후 "+(u.tFirst?sec(u.tFirst-u.t0):"-")+", 완료: 뗀 후 "+sec(doneMs)+")");
+ if(wsSig==="__stale"){liveClose();liveConnect().catch(()=>{})}
+}
+function addHist(who,t){const d=document.createElement("div");d.className=who;d.textContent=(who==="me"?"🗣 ":"💬 ")+t;$("hist").prepend(d);while($("hist").children.length>40)$("hist").lastChild.remove();return d}
+
+// ---------- 마이크: AudioWorklet로 0.1초씩 잘라 16kHz PCM으로 변환 ----------
+let ac=null,micStream=null,preroll=[],talking=false,pressT=0,toggleMode=false,cur=null;
+const WORKLET=`class P extends AudioWorkletProcessor{constructor(){super();this.n=Math.round(sampleRate/10);this.b=new Float32Array(this.n);this.i=0}
+process(inp){const c=inp[0]&&inp[0][0];if(c)for(let k=0;k<c.length;k++){this.b[this.i++]=c[k];if(this.i===this.n){this.port.postMessage(this.b,[this.b.buffer]);this.b=new Float32Array(this.n);this.i=0}}return true}}
+registerProcessor("pcm-chunker",P);`;
+async function micInit(){
+ if(ac)return;
+ micStream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
+ ac=new(window.AudioContext||window.webkitAudioContext)();
+ await ac.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET],{type:"text/javascript"})));
+ const src=ac.createMediaStreamSource(micStream),node=new AudioWorkletNode(ac,"pcm-chunker"),mute=ac.createGain();mute.gain.value=0;
+ node.port.onmessage=e=>onChunk(toPcm16(e.data,ac.sampleRate));
+ src.connect(node);node.connect(mute);mute.connect(ac.destination);
+ lg("마이크 준비 ("+ac.sampleRate+" Hz → 16000 Hz)");
+}
+// Float32(기기 샘플레이트) → 16kHz 16bit PCM → base64
+function toPcm16(f,rate){
+ const ratio=rate/16000,m=Math.floor(f.length/ratio),pcm=new Int16Array(m);
+ for(let i=0;i<m;i++){
+  const a=Math.floor(i*ratio),b=Math.min(f.length,Math.floor((i+1)*ratio));let s=0;for(let j=a;j<b;j++)s+=f[j];
+  pcm[i]=Math.max(-1,Math.min(1,b>a?s/(b-a):f[a]||0))*0x7fff;
+ }
+ const bytes=new Uint8Array(pcm.buffer);let s="";for(let i=0;i<bytes.length;i+=0x8000)s+=String.fromCharCode.apply(null,bytes.subarray(i,i+0x8000));
+ return btoa(s);
+}
+const audioMsg=b64=>({realtimeInput:{audio:{data:b64,mimeType:"audio/pcm;rate=16000"}}});
+function onChunk(b64){
+ if(talking)wsSend(audioMsg(b64));
+ else{preroll.push(b64);if(preroll.length>3)preroll.shift()} // 누르기 직전 약 0.3초 보관 → 첫 음절이 잘리지 않게
+}
+
+// ---------- 누르고 말하기 ----------
+// 길게 누르면: 떼는 순간 전송 / 짧게 톡 누르면: 다시 누를 때 전송
+async function startTalk(){
+ if(talking||!role)return;
+ if(!$("key").value.trim()){$("setup").open=true;$("api").className="bad";$("api").textContent="API 키부터 입력하세요";return}
+ if(!authed()){$("setup").open=true;$("conn").textContent="🔒 로그인하세요";return}
+ talking=true;
+ if(cur&&!cur.done)finish(cur); // 이전 발화가 아직 마무리 전이면 지금까지 받은 번역으로 확정
+ const u=ui(),utt=cur={id:role+"-"+Date.now()+"-"+Math.random().toString(36).slice(2,6),t0:performance.now(),tRel:0,rel:0,tFirst:0,out:"",inTr:"",done:false,stopping:false,hist:null,idleT:0};
+ if(!ws||wsSig!==sig())liveConnect().catch(e=>lg("Live 연결 실패 → "+e.message));
+ if(!isTranslate())wsSend({realtimeInput:{activityStart:{}}});
+ try{await micInit();if(ac.state!=="running")await ac.resume()}
+ catch(e){talking=false;utt.done=true;$("tstat").textContent="❌ 마이크 권한을 허용하세요";lg("마이크 오류 → "+e.message);return}
+ for(const p of preroll)wsSend(audioMsg(p));preroll=[];
+ $("talk").classList.add("on");$("talk").textContent=toggleMode?u.tapStop:u.listening;$("tstat").textContent="";
+ $("mine").textContent="🎙 …";$("mineTr").textContent="";$("mFirst").textContent="…";$("mDone").textContent="…";
+}
+function stopTalk(){
+ if(!talking||!cur||cur.stopping)return;
+ const utt=cur,u=ui();utt.stopping=true;
+ $("talk").classList.remove("on");$("talk").classList.add("busy");$("talk").textContent=u.talk;$("tstat").textContent=u.translating;
+ // 마지막 0.1초 조각까지 보낸 뒤 끝 신호
+ setTimeout(()=>{
+  talking=false;utt.tRel=performance.now();utt.rel=Date.now()+offset;
+  if(isTranslate())wsSend({realtimeInput:{audioStreamEnd:true}});else wsSend({realtimeInput:{activityEnd:{}}});
+  lg("뗌 → 발화 끝 신호 전송 (녹음 "+sec(utt.tRel-utt.t0)+")");
+  armIdle(utt);
+ },120);
+}
+const talk=$("talk");
+talk.addEventListener("pointerdown",e=>{e.preventDefault();if(talking){stopTalk();return}pressT=performance.now();toggleMode=false;startTalk()});
+talk.addEventListener("pointerup",()=>{if(!talking)return;if(performance.now()-pressT<400){toggleMode=true;talk.textContent=ui().tapStop;return}stopTalk()});
+talk.addEventListener("pointercancel",()=>{if(talking&&!toggleMode)stopTalk()});
+talk.addEventListener("contextmenu",e=>e.preventDefault());
+if(!window.AudioWorkletNode){$("tstat").textContent="❌ 이 브라우저는 AudioWorklet을 지원하지 않습니다 (최신 크롬 사용)"}
+</script></main></body></html>
