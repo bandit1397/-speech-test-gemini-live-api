@@ -1,4 +1,4 @@
-# speech-test-gemini-live-api
+# -speech-test-gemini-live-api
 
 Gemini **Live API**(WebSocket)로 만든 경찰 실시간 통역 **시험판**입니다.
 기존 버전 [speech-test](https://github.com/bandit1397/speech-test)의 `app.html`(요청 방식)과 속도를 나란히 비교하기 위한 별도 저장소입니다. 기존 버전은 그대로 둡니다.
@@ -7,10 +7,10 @@ Gemini **Live API**(WebSocket)로 만든 경찰 실시간 통역 **시험판**�
 
 | 버전 | 주소 |
 |---|---|
-| **Live 시험판 (이 저장소)** | **https://bandit1397.github.io/speech-test-gemini-live-api/app-live.html** |
+| **Live 시험판 (이 저장소)** | **https://bandit1397.github.io/-speech-test-gemini-live-api/app-live.html** |
 | 기존 버전 (비교용) | https://bandit1397.github.io/speech-test/app.html |
 
-- 루트 주소 https://bandit1397.github.io/speech-test-gemini-live-api/ 로 열어도 app-live.html로 이동합니다.
+- 루트 주소 https://bandit1397.github.io/-speech-test-gemini-live-api/ 로 열어도 app-live.html로 이동합니다.
 - 푸시 후 반영까지 1~2분 걸립니다. 폰에 예전 화면이 보이면 새로고침하세요.
 - 두 버전은 같은 도메인(bandit1397.github.io)을 쓰므로 Firebase 로그인 상태도 함께 유지됩니다.
 
